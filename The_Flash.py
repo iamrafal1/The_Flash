@@ -3,7 +3,7 @@ import time
 import tkinter
 import random
 from tkinter import ttk
-import mutagen
+from tkinter import messagebox
 
 
 
@@ -210,20 +210,17 @@ class Card:
         else:
             return None
 
-    '''Might need to keep track of index'''
-
 
 class Deck:
 
     def __init__(self, name):
         self.name = name
-        self.all_cards = []
         self.new = []
         self.fails = Queue()
         self.due_repetitions = []
         self.all_repetitions = APQ()
 
-    """Maybe a deck should handle all the checking for due repetitions"""
+
     def check_repetitions(self):
         while True:
             if self.all_repetitions.min()[1] == 0:
@@ -232,6 +229,9 @@ class Deck:
             else:
                 break
 
+    def check_total_size(self):
+        t = len(self.new) + len(self.fails.queue) + len(self.due_repetitions) + len(self.all_repetitions.queue)
+        return t
 
 class IntervalAlgorithm:
 
@@ -257,21 +257,41 @@ class MainWindow:
 
     def __init__(self):
         self.app = tkinter.Tk()
-        self._tab_control = ttk.Notebook(self.app)
-        self._cards = CardsTab(self._tab_control)
-        self._decks = DecksTab(self._tab_control)
-        self._declare_tabs()
+        self.tab_control = ttk.Notebook(self.app)
+        self.cards = CardsTab(self.tab_control)
+        self.decks = DecksTab(self.tab_control)
+        self.declare_tabs()
         self.app.title("The Flash")
         self.app.protocol("WM_DELETE_WINDOW", self.on_closing)
 
 
-    def _declare_tabs(self):
-        self._tab_control.add(self._cards.frame, text='Cards')
-        self._tab_control.add(self._decks.frame, text='Decks')
-        self._tab_control.grid(row=0, column=0)
+    def declare_tabs(self):
+        self.tab_control.add(self.decks.frame, text='Decks')
+        self.tab_control.add(self.cards.frame, text='Cards')
+        self.tab_control.grid(row=0, column=0)
 
     def on_closing(self):
         self.app.destroy()
+
+class CardsTab:
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.frame = tkinter.Frame(self.parent)
+        self.tab_control = ttk.Notebook(self.frame, width=370, height=220)
+        self.repetitions = Repetitions(self.tab_control)
+        self.new = New(self.tab_control)
+        self.fails = Fails(self.tab_control)
+        self.declare_tabs()
+        self.position()
+
+    def declare_tabs(self):
+        self.tab_control.add(self.repetitions.frame, text='Repetitions')
+        self.tab_control.add(self.new.frame, text='New')
+        self.tab_control.add(self.fails.frame, text='Fails')
+
+    def position(self):
+        self.tab_control.grid(row=0, column=0)
 
 class GeneralCardTab:
 
@@ -279,21 +299,26 @@ class GeneralCardTab:
         self.parent = parent
         self.frame = tkinter.Frame(self.parent)
         self.current_card = None
-        self.current_deck = None
         self.current_card_index = 0
         self.card_list = []
         self.cards_left = 0
         self.cards_left_label = tkinter.Label(self.frame, text="0")
         self.label1 = tkinter.Label(self.frame, text="Label1")
         self.label2 = tkinter.Label(self.frame, text="Label2")
-        self._good = tkinter.Button(self.frame, text="Good", command=self.good)
-        self._medium = tkinter.Button(self.frame, text="Medium", command=self.medium)
-        self._bad = tkinter.Button(self.frame, text="Bad", command=self.bad)
+        self.check_button = tkinter.Button(self.frame, text="Check", command=self.check)
+        self.good = tkinter.Button(self.frame, text="Good", command=self.good)
+        self.medium = tkinter.Button(self.frame, text="Medium", command=self.medium)
+        self.bad = tkinter.Button(self.frame, text="Bad", command=self.bad)
         self.m = tkinter.Menu(self.frame, tearoff=0)
         self.m.add_command(label="Edit Card", command=self.edit)
         self.m.add_command(label="Delete Card", command=self.delete)
         self.frame.bind("<Button-3>", self.do_popup)
         self._position()
+
+    def new_load(self):
+        self.current_card_index = len(self.card_list) + 1
+        self.label1['text'] = self.card_list[0].l1
+        self.label2['text'] = " "
 
     def do_popup(self, event):
         try:
@@ -301,27 +326,51 @@ class GeneralCardTab:
         finally:
             self.m.grab_release()
 
+    def check(self):
+        self.label2['text'] = self.card_list[self.current_card_index].l2
+
+
     def _position(self):
         self.cards_left_label.grid(row=0, column=1)
         self.label1.grid(row=1, column=1)
         self.label2.grid(row=2, column=1)
-        self._good.grid(row=3, column=0)
-        self._medium.grid(row=3, column=1)
-        self._bad.grid(row=3, column=2)
+        self.check_button.grid(row=3, column=1)
+        self.good.grid(row=4, column=0)
+        self.medium.grid(row=4, column=1)
+        self.bad.grid(row=4, column=2)
 
     def good(self):
-        self.current_card.last_grade = 2
+        self.card_list[self.current_card_index].last_grade = 2
+        self.next_card()
 
     def medium(self):
-        self.current_card.last_grade = 1
+        self.card_list[self.current_card_index].last_grade = 1
+        self.next_card()
 
     def bad(self):
-        self.current_card.last_grade = 0
+        self.card_list[self.current_card_index].last_grade = 0
+        self.next_card()
 
     def next_card(self):
+        # To be overridden by each function anyway
         sm = IntervalAlgorithm()
-        sm.algo(self.current_card)
-        self.current_card_index += 1
+        sm.algo(self.card_list[self.current_card_index])
+        c = self.card_list.pop()
+        if c.last_grade < 2:
+            application.cards.fails.card_list.append(c)
+        else:
+            application.decks.loaded_deck.all_repetitions.append(c)
+        if self.current_card_index > 0:
+            self.current_card_index -= 1
+        else:
+            if len(self.card_list) > 0:
+                self.current_card_index = len(self.card_list) + 1
+            else:
+                self.label1['text'] = " "
+                self.label2['text'] = " "
+
+        self.label1['text'] = self.card_list[self.current_card_index].l1
+        self.label2['text'] = self.card_list[self.current_card_index].l2
 
 
     def edit(self):
@@ -330,35 +379,22 @@ class GeneralCardTab:
     def delete(self):
         self.card_list = 1
 
-class CardsTab:
 
-    def __init__(self, parent):
-        self.parent = parent
-        self.frame = tkinter.Frame(self.parent)
-        self._tab_control = ttk.Notebook(self.frame)
-        self._repetitions = tkinter.Frame(self._tab_control)
-        self._new = tkinter.Frame(self._tab_control)
-        self._fails = tkinter.Frame(self._tab_control)
-        self._declare_tabs()
-
-
-        self._position()
-
-    def _declare_tabs(self):
-        self._tab_control.add(self._repetitions, text='Repetitions')
-        self._tab_control.add(self._new, text='New')
-        self._tab_control.add(self._fails, text='Fails')
-
-    def _position(self):
-        self._tab_control.grid(row=0, column=0)
 
 
 class Repetitions(GeneralCardTab):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.card_list = "repetitions"
 
+    def next_card(self):
+        # To be overridden by each function anyway
+        sm = IntervalAlgorithm()
+        sm.algo(self.card_list[self.current_card_index])
+
+        self.current_card_index += 1
+        self.label1['text'] = self.card_list[self.current_card_index].l1
+        self.label2['text'] = self.card_list[self.current_card_index].l2
 
 
 
@@ -367,25 +403,37 @@ class New(GeneralCardTab):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.card_list = "repetitions"
+
+    def next_card(self):
+        # To be overridden by each function anyway
+        sm = IntervalAlgorithm()
+        sm.algo(self.card_list[self.current_card_index])
+
+        self.current_card_index += 1
+        self.label1['text'] = self.card_list[self.current_card_index].l1
+        self.label2['text'] = self.card_list[self.current_card_index].l2
 
 class Fails(GeneralCardTab):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.card_list = "repetitions"
 
+
+'''Need to change size of each card. Need to implement system that laods label2 after pressing a button. Need to
+implement edit card. Need to correctly implement loaded deck to each card tab.'''
 
 class DecksTab:
 
     def __init__(self, parent):
         self.parent = parent
         self.frame = tkinter.Frame(self.parent)
+        self.loaded_deck = None
+        self.loaded_deck_label = tkinter.Label(self.frame, text="Currently Loaded Deck: None", wraplength=140)
         self.new_button = tkinter.Button(self.frame, text="New+", command=self.new)
         self.new_name_entry = tkinter.Entry(self.frame, text="New Deck")
         self.name_label = tkinter.Label(self.frame, text="Name")
         self.total_cards_label = tkinter.Label(self.frame, text="Total Cards")
-        self.repetitions_label = tkinter.Label(self.frame, text="Repetitions")
+        self.repetitions_label = tkinter.Label(self.frame, text="Repetitions Due")
         self.name_list = tkinter.Listbox(self.frame)
         self.total_list = tkinter.Listbox(self.frame)
         self.repetitions_list = tkinter.Listbox(self.frame)
@@ -393,23 +441,115 @@ class DecksTab:
         self.name_list.bind("<MouseWheel>", self.mousewheel1)
         self.total_list.bind("<MouseWheel>", self.mousewheel2)
         self.repetitions_list.bind("<MouseWheel>", self.mousewheel3)
+        self.m = tkinter.Menu(self.frame, tearoff=0)
+        self.m.add_command(label="Edit Deck", command=self.edit)
+        self.m.add_command(label="Delete Deck", command=self.confirm)
+        self.m.add_command(label="Load Deck", command=self.load)
+        self.name_list.bind("<Button-3>", self.do_popup)
+        # self.hard_refresh()
+        self.soft_refresh()
+
+    def confirm(self):
+        answer = tkinter.messagebox.askokcancel(title='Confirmation',
+                          message='Are you sure that you want to delete?')
+        if answer:
+            self.delete()
+
+    def edit(self):
+        name = self.name_list.get(self.name_list.curselection())
+        d = storage.access_deck(name)
+        wind = EditDeck(d)
+
+    def delete(self):
+        name = self.name_list.get(self.name_list.curselection())
+        storage.remove_deck(name)
+        self.soft_refresh()
+
+
+    def do_popup(self, event):
+        try:
+            self.m.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.m.grab_release()
+
+    def load(self):
+        name = self.name_list.get(self.name_list.curselection())
+        deck = storage.access_deck(name)
+        print(deck.name)
+        application.cards.new.card_list = deck.new
+        application.cards.new.new_load()
+        application.cards.repetitions.card_list = deck.due_repetitions
+        application.cards.repetitions.new_load()
+        application.cards.fails.card_list = deck.fails.queue
+        application.cards.fails.new_load()
+        self.loaded_deck = deck
+        self.loaded_deck_label['text'] = "Currently loaded deck: " + deck.name
 
     def _position(self):
-        self.new_button.grid(row=0, column=0, sticky="e")
-        self.new_name_entry.grid(row=0, column=1, sticky="w")
-        self.name_label.grid(row=1, column=0)
-        self.total_cards_label.grid(row=1, column=1)
-        self.repetitions_label.grid(row=1, column=2)
-        self.name_list.grid(row=2, column=0)
-        self.total_list.grid(row=2, column=1)
-        self.repetitions_list.grid(row=2, column=2)
+        self.loaded_deck_label.grid(row=0, column=1)
+        self.new_button.grid(row=1, column=0, sticky="e")
+        self.new_name_entry.grid(row=1, column=1, sticky="w")
+        self.name_label.grid(row=2, column=0)
+        self.total_cards_label.grid(row=2, column=1)
+        self.repetitions_label.grid(row=2, column=2)
+        self.name_list.grid(row=3, column=0)
+        self.total_list.grid(row=3, column=1)
+        self.repetitions_list.grid(row=3, column=2)
 
 
     def new(self):
         d_name = self.new_name_entry.get()
-        d = Deck(d_name)
-        wind = EditDeck(d)
+        if d_name != "":
+            d = Deck(d_name)
+            wind = EditDeck(d)
 
+    def soft_refresh(self):
+        the_list = storage.all_decks()
+        self.name_list.delete(0, 'end')
+        self.total_list.delete(0, 'end')
+        self.repetitions_list.delete(0, 'end')
+        j = 0
+        for i in the_list:
+            temp = storage.access_deck(i)
+            self.name_list.insert(j, temp.name)
+            self.total_list.insert(j, temp.check_total_size())
+            self.repetitions_list.insert(j, len(temp.due_repetitions))
+            j += 1
+        self.colour_coordinate()
+
+    def colour_coordinate(self):
+        i = 0
+        while i < self.name_list.size():
+            if i % 2 == 0:
+                self.name_list.itemconfig(i, bg="ivory")
+                self.total_list.itemconfig(i, bg="ivory")
+                self.repetitions_list.itemconfig(i, bg="ivory")
+            else:
+                self.name_list.itemconfig(i, bg="light blue")
+                self.total_list.itemconfig(i, bg="light blue")
+                self.repetitions_list.itemconfig(i, bg="light blue")
+            i += 1
+
+
+    ''' Need method for commiting progress to save file upon exiting. Save after each repetition/newcard etc???? Might
+    have a counter to save after x cards, otherwise might take too long to constantly access hard drive. Need to start
+    with the card tabs. Need to test extensively to see if working. Need to implement dates for repetitions.'''
+
+    def hard_refresh(self):
+        the_list = storage.all_decks()
+        self.name_list.delete(0, 'end')
+        self.total_list.delete(0, 'end')
+        self.repetitions_list.delete(0, 'end')
+        j = 0
+        for i in the_list:
+            temp = storage.access_deck(i)
+            temp.check_repetitions()
+            self.name_list.insert(j, temp.name)
+            self.total_list.insert(j, temp.check_total_size())
+            self.repetitions_list.insert(j, len(temp.due_repetitions))
+            j += 1
+
+        self.colour_coordinate()
 
 
     def mousewheel1(self, event):
@@ -429,10 +569,7 @@ class DecksTab:
 
 
     """Simple list of all decks with options of deleting decks and editing decks)"""
-'''
-class Settings:
-(maybe unneccessary still dont know)
-'''
+
 
 
 
@@ -442,33 +579,96 @@ class EditDeck:
 
     def __init__(self, deck):
         self.window = tkinter.Tk()
-        self.current_deck = deck
+        self.deck = deck
+        try:
+            self.current_deck = storage.access_deck(self.deck)
+        except:
+            self.current_deck = deck
         self.deck_name_entry = tkinter.Entry(self.window)
         self.deck_name_entry.insert(0, self.current_deck.name)
-        self.var = tkinter.IntVar()
+        self.var = 0
+        self.old_name = self.current_deck.name
         self.e1 = tkinter.Entry(self.window)
         self.e2 = tkinter.Entry(self.window)
-        self.checkbox = tkinter.Checkbutton(self.window, text="2 sided", variable=self.var)
+        self.checkbox = tkinter.Checkbutton(self.window, text="2 sided", variable=self.var, command=self.checkbutton)
+        self.checkbox.var = self.var
         self.add_button = tkinter.Button(self.window, text="Add", command=self.add_card)
-        self.save_button = tkinter.Button(self.window, text="Save")
+        self.save_button = tkinter.Button(self.window, text="Save", command=self.save)
         self.total_cards_label = tkinter.Label(self.window, text="Total cards: 0")
         self.list1 = tkinter.Listbox(self.window)
         self.list2 = tkinter.Listbox(self.window)
-        self.total_cards = 0
         self._position()
         self.m = tkinter.Menu(self.list1, tearoff=0)
         self.m2 = tkinter.Menu(self.list2, tearoff=0)
-        self.m.add_command(label="Delete Card", command=self.delete1)
-        self.m2.add_command(label="Delete Card", command=self.delete2)
+        self.m.add_command(label="Delete Card", command=self.delete)
+        self.m2.add_command(label="Delete Card", command=self.delete)
+        self.m.add_command(label="Edit Card", command=self.edit)
+        self.m2.add_command(label="Edit Card", command=self.edit)
         self.list1.bind("<Button-3>", self.do_popup)
         self.list2.bind("<Button-3>", self.do_popup)
+        self.list1.bind("<MouseWheel>", self.mousewheel1)
+        self.list2.bind("<MouseWheel>", self.mousewheel2)
+        self.deck_name_entry.bind("<Button-1>", self.change_state)
+        self.fill_tables()
+        self.total_cards = self.list1.size()
+        self.total_cards_label['text'] = "Total cards: " + str(self.total_cards)
+        self.deck_name_entry['state'] = tkinter.DISABLED
 
+
+    def change_state(self, event):
+        if self.deck_name_entry['state'] == tkinter.DISABLED:
+            self.deck_name_entry['state'] = tkinter.NORMAL
+        else:
+            self.deck_name_entry['state'] = tkinter.DISABLED
+
+    def mousewheel1(self, event):
+        self.list2.yview_scroll(-4 * int(event.delta / 120), "units")
+
+    def mousewheel2(self, event):
+        self.list1.yview_scroll(-4 * int(event.delta / 120), "units")
 
     def do_popup(self, event):
         try:
             self.m.tk_popup(event.x_root, event.y_root)
         finally:
             self.m.grab_release()
+
+    def edit(self):
+        if self.list1.index(tkinter.ACTIVE) is not None:
+            number = self.list1.index(tkinter.ACTIVE)
+            name1 = self.list1.get(tkinter.ACTIVE)
+            name2 = self.list2.get(number)
+        else:
+            number = self.list2.index(tkinter.ACTIVE)
+            name1 = self.list2.get(tkinter.ACTIVE)
+            name2 = self.list1.get(number)
+        for i in self.current_deck.new:
+            if i.l1 == name1 or i.l1 == name2:
+                if i.l2 == name1 or i.l2 == name2:
+                    s = EditCard(i)
+                    return
+        for i in self.current_deck.due_repetitions:
+            if i.l1 == name1 or i.l1 == name2:
+                if i.l2 == name1 or i.l2 == name2:
+                    s = EditCard(i)
+                    return
+        for i in self.current_deck.fails.queue:
+            if i.l1 == name1 or i.l1 == name2:
+                if i.l2 == name1 or i.l2 == name2:
+                    s = EditCard(i)
+                    return
+        for i in self.current_deck.all_repetitions.queue:
+            if i._value.l1 == name1 or i._value.l1 == name2:
+                if i._value.l2 == name1 or i._value.l2 == name2:
+                    s = EditCard(i._value)
+                    return
+
+
+    def checkbutton(self):
+        if self.var == 0:
+            self.var = 1
+        else:
+            self.var = 0
 
     def _position(self):
         self.deck_name_entry.grid(row=0, column=0)
@@ -487,55 +687,154 @@ class EditDeck:
         if not (e1 == "" or e2 == ""):
             c = Card(e1, e2)
             self.current_deck.new.append(c)
-            self.current_deck.all_cards.append(c)
-            if self.var.get():
+            print(self.var)
+            if self.var == 1:
+                print("hi")
                 c1 = Card(e2, e1)
                 self.current_deck.new.append(c1)
-                self.current_deck.all_cards.append(c1)
         self.e1.delete(0, 'end')
         self.e2.delete(0, 'end')
+        self.fill_tables()
+        self.total_cards = self.list1.size()
+        self.total_cards_label['text'] = "total cards:", self.total_cards
+        self.list1.yview(tkinter.END)
+        self.list2.yview(tkinter.END)
 
     def fill_tables(self):
+        self.list1.delete(0, 'end')
+        self.list2.delete(0, 'end')
         j = 0
         for i in self.current_deck.new:
             self.list1.insert(j, i.l1)
             self.list2.insert(j, i.l2)
             j += 1
+        for i in self.current_deck.fails.queue:
+            self.list1.insert(j, i.l1)
+            self.list2.insert(j, i.l2)
+            j += 1
+        for i in self.current_deck.due_repetitions:
+            self.list1.insert(j, i.l1)
+            self.list2.insert(j, i.l2)
+            j += 1
+        for i in self.current_deck.all_repetitions.queue:
+            self.list1.insert(j, i._value.l1)
+            self.list2.insert(j, i._value.l2)
+            j += 1
         self.colour_coordinate()
+
+
+
+    def delete(self):
+        if self.list1.index(tkinter.ACTIVE) is not None:
+            number = self.list1.index(tkinter.ACTIVE)
+            name1 = self.list1.get(tkinter.ACTIVE)
+            name2 = self.list2.get(number)
+        else:
+            number = self.list2.index(tkinter.ACTIVE)
+            name1 = self.list2.get(tkinter.ACTIVE)
+            name2 = self.list1.get(number)
+        card_counter = 0
+        list_index = 0
+        for card in self.current_deck.new:
+            if card.l1 == name1:
+                if card.l2 == name2:
+                    card_counter += 1
+                    del self.current_deck.new[list_index]
+            if self.var == 1:
+                if card.l1 == name2:
+                    if card.l2 == name1:
+                        card_counter += 1
+                        del self.current_deck.new[list_index]
+            if self.var == 1:
+                if card_counter == 2:
+                    return
+            else:
+                if card_counter == 1:
+                    return
+            list_index += 1
+        list_index = 0
+        for card in self.current_deck.fails.queue:
+            if card.l1 == name1:
+                if card.l2 == name2:
+                    card_counter += 1
+                    del self.current_deck.fails.queue[list_index]
+            if self.var == 1:
+                if card.l1 == name2:
+                    if card.l2 == name1:
+                        card_counter += 1
+                        del self.current_deck.fails.queue[list_index]
+            if self.var == 1:
+                if card_counter == 2:
+                    return
+            else:
+                if card_counter == 1:
+                    return
+            list_index += 1
+        list_index = 0
+        for card in self.current_deck.due_repetitions:
+            if card.l1 == name1:
+                if card.l2 == name2:
+                    card_counter += 1
+                    del self.current_deck.due_repetitions[list_index]
+            if self.var == 1:
+                if card.l1 == name2:
+                    if card.l2 == name1:
+                        card_counter += 1
+                        del self.current_deck.due_repetitions[list_index]
+            if self.var == 1:
+                if card_counter == 2:
+                    return
+            else:
+                if card_counter == 1:
+                    return
+            list_index += 1
+        list_index = 0
+        for card in self.current_deck.all_repetitions.queue:
+            if card._value.l1 == name1:
+                if card._value.l2 == name2:
+                    card_counter += 1
+                    del self.current_deck.all_repetitions.queue[list_index]
+            if self.var == 1:
+                if card.l1 == name2:
+                    if card._value.l2 == name1:
+                        card_counter += 1
+                        del self.current_deck.all_repetitions.queue[list_index]
+            if self.var == 1:
+                if card_counter == 2:
+                    return
+            else:
+                if card_counter == 1:
+                    return
+            list_index += 1
+        self.fill_tables()
+        self.total_cards = self.list1.size()
+        self.total_cards_label['text'] = "total cards:", self.total_cards
 
     def colour_coordinate(self):
         i = 0
-        while i < len(self.current_deck.new):
+        while i < self.list1.size():
             if i % 2 == 0:
                 self.list1.itemconfig(i, bg="ivory")
                 self.list2.itemconfig(i, bg="ivory")
+
             else:
                 self.list1.itemconfig(i, bg="light blue")
                 self.list2.itemconfig(i, bg="light blue")
             i += 1
 
-    def delete1(self):
-        number = self.list1.index(tkinter.ACTIVE)
-        name1 = self.list1.get(tkinter.ACTIVE)
-        name2 = self.list2.get(number)
-        del self.current_deck.new[number]
-        del self.current_deck.all_cards
 
-        """Need to add method to deck that removes item from all cards based on l1 and l2"""
+    def save(self):
+        if self.deck_name_entry.get() != self.old_name:
+            storage.remove_deck(self.old_name)
+            self.current_deck.name = self.deck_name_entry.get()
+        name = self.deck_name_entry.get()
+        cd = self.current_deck
+        storage.save_deck(name, cd)
+        time.sleep(0.25)
+        application.decks.soft_refresh()
+        self.window.destroy()
 
-
-    def delete2(self):
-        number = self.list2.index(tkinter.ACTIVE)
-        del self.current_deck.new[number]
-
-
-    """Need to consider ADT to store all cards regardless of whether they were done or not. Not sure how to implement"""
-
-
-    '''Need to add method to fill tables, save to db, create new card, create ADT for cards, handle 2 sided or not, 
-    update total cards and tables after each add, deleting cards, handle deck name'''
-
-
+    ''' Need to have decks tab actively read database and update each time,Need to have another look at the delete card.'''
 
 class EditCard:
 
@@ -567,11 +866,21 @@ class DeckFile:
         st.close()
         return temp
 
+    def all_decks(self):
+        st = shelve.open(self.name)
+        mylist = list(st.keys())
+        st.close()
+        return mylist
+
     def save_deck(self, name, value):
         st = shelve.open(self.name, writeback=True)
         st[name] = value
         st.close()
 
+    def remove_deck(self, name):
+        st = shelve.open(self.name, writeback=True)
+        del st[name]
+        st.close()
 
     '''Might need to add a bunch of checks to run at start of entire program and at end of entire program.'''
 
